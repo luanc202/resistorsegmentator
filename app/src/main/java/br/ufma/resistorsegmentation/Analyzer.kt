@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.RectF
+import android.util.Log
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import br.ufma.resistorsegmentation.types.SegmentationResult
@@ -14,48 +15,59 @@ import org.tensorflow.lite.support.tensorbuffer.TensorBuffer
 import java.nio.ByteBuffer
 import kotlin.math.exp
 
-class Analyzer(private val overlayView: SegmentationOverlayView, private val context: Context) : ImageAnalysis.Analyzer {
+class Analyzer(private val overlayView: SegmentationOverlayView, private val context: Context) :
+    ImageAnalysis.Analyzer {
     private val interpreter: Interpreter by lazy {
-        val modelFile = context.assets.open("best_float32.tflite").use { input ->
-            val buffer = ByteBuffer.allocateDirect(input.available())
-            input.read(buffer.array())
-            buffer
+        try {
+            val modelFile = context.assets.open("best_float32.tflite").use { input ->
+                val buffer = ByteBuffer.allocateDirect(input.available())
+                input.read(buffer.array())
+                buffer
+            }
+            Interpreter(modelFile, Interpreter.Options().apply {
+                addDelegate(GpuDelegate()) // Use GPU for faster inference
+            })
+        } catch (e: Exception) {
+            Log.e("Analyzer", "Failed to load model", e)
+            throw e
         }
-        Interpreter(modelFile, Interpreter.Options().apply {
-            addDelegate(GpuDelegate()) // Use GPU for faster inference
-        })
     }
 
     override fun analyze(image: ImageProxy) {
-        // Convert ImageProxy to Bitmap
-        val bitmap = image.toBitmap()
-        val inputTensor = preprocessImage(bitmap)
+        try {
+            // Convert ImageProxy to Bitmap
+            val bitmap = image.toBitmap()
+            val inputTensor = preprocessImage(bitmap)
 
-        val detectionOutput = Array(1) { FloatArray(45 * 8400) }  // [1, 45, 8400] flattened
-        val maskOutput = Array(1) { FloatArray(160 * 160 * 32) }  // [1, 160, 160, 32] flattened
-        val outputs = mapOf(
-            0 to detectionOutput,  // Output 0: detections
-            1 to maskOutput        // Output 1: mask prototypes
-        )
+            val detectionOutput = Array(1) { FloatArray(45 * 8400) }  // [1, 45, 8400] flattened
+            val maskOutput = Array(1) { FloatArray(160 * 160 * 32) }  // [1, 160, 160, 32] flattened
+            val outputs = mapOf(
+                0 to detectionOutput,  // Output 0: detections
+                1 to maskOutput        // Output 1: mask prototypes
+            )
 
-        // Run inference
-        interpreter.runForMultipleInputsOutputs(arrayOf(inputTensor), outputs)
+            // Run inference
+            interpreter.runForMultipleInputsOutputs(arrayOf(inputTensor), outputs)
 
-        // Postprocess the outputs
-        val segmentationResults = postprocessOutput(detectionOutput[0], maskOutput[0])
+            // Postprocess the outputs
+            val segmentationResults = postprocessOutput(detectionOutput[0], maskOutput[0])
 
-        // Update overlay view on UI thread
-        overlayView.post {
-            overlayView.setSegmentationResults(segmentationResults)
-            overlayView.invalidate()
+            // Update overlay view on UI thread
+            overlayView.post {
+                overlayView.setSegmentationResults(segmentationResults)
+                overlayView.invalidate()
+            }
+        } catch (e: Exception) {
+            Log.e("Analyzer", "Inference failed", e)
+        } finally {
+            image.close()
         }
-
-        image.close()
     }
 
     private fun preprocessImage(bitmap: Bitmap): TensorBuffer {
         val resized = Bitmap.createScaledBitmap(bitmap, 640, 640, true)
-        val tensorBuffer = TensorBuffer.createFixedSize(intArrayOf(1, 640, 640, 3), DataType.FLOAT32)
+        val tensorBuffer =
+            TensorBuffer.createFixedSize(intArrayOf(1, 640, 640, 3), DataType.FLOAT32)
         val pixels = IntArray(640 * 640)
         resized.getPixels(pixels, 0, 640, 0, 0, 640, 640)
         val floatBuffer = tensorBuffer.buffer.asFloatBuffer()

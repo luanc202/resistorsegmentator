@@ -2,15 +2,20 @@ package br.ufma.resistorsegmentation
 
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.util.Log
 import android.util.Size
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.enableEdgeToEdge
 import androidx.camera.core.AspectRatio
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.Preview
+import androidx.camera.core.resolutionselector.AspectRatioStrategy
+import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
-import androidx.camera.core.Preview
 import androidx.core.content.ContextCompat
 
 class MainActivity : ComponentActivity() {
@@ -33,20 +38,38 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 100) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                startCamera()
+            } else {
+                Toast.makeText(this, "Camera permission denied", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
     private fun startCamera() {
+        Log.d("CameraApp", "Starting camera")
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
         cameraProviderFuture.addListener({
+            Log.d("CameraApp", "Camera provider obtained")
             val cameraProvider = cameraProviderFuture.get()
+
+            val resolutionSelector = ResolutionSelector.Builder()
+                .setAspectRatioStrategy(AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY)
+                .setResolutionStrategy(ResolutionStrategy.HIGHEST_AVAILABLE_STRATEGY)
+                .build()
 
             // Preview use case
             val preview = Preview.Builder()
-                .setTargetAspectRatio(AspectRatio.RATIO_DEFAULT) // Match model input, e.g., 640x640
+                .setTargetAspectRatio(AspectRatio.RATIO_DEFAULT)
                 .build()
-                .also { it.setSurfaceProvider(previewView.surfaceProvider) }
+                .also { it.surfaceProvider = previewView.surfaceProvider }
 
             // Image analysis use case
             val imageAnalysis = ImageAnalysis.Builder()
-                .setTargetResolution(Size(640, 640)) // Match model input size
+                .setTargetResolution(Size(640, 640))
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build()
                 .also {

@@ -16,7 +16,7 @@ import kotlin.math.exp
 
 class Analyzer(private val overlayView: SegmentationOverlayView, private val context: Context) : ImageAnalysis.Analyzer {
     private val interpreter: Interpreter by lazy {
-        val modelFile = context.assets.open("yolov11_model.tflite").use { input ->
+        val modelFile = context.assets.open("best_float32.tflite").use { input ->
             val buffer = ByteBuffer.allocateDirect(input.available())
             input.read(buffer.array())
             buffer

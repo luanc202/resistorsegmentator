@@ -1,6 +1,7 @@
 package br.ufma.resistorsegmentation
 
 import android.content.Context
+import android.content.res.AssetFileDescriptor
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.RectF
@@ -12,18 +13,22 @@ import org.tensorflow.lite.DataType
 import org.tensorflow.lite.Interpreter
 import org.tensorflow.lite.gpu.GpuDelegate
 import org.tensorflow.lite.support.tensorbuffer.TensorBuffer
+import java.io.FileInputStream
+import java.io.IOException
 import java.nio.ByteBuffer
+import java.nio.MappedByteBuffer
+import java.nio.channels.FileChannel
 import kotlin.math.exp
+
 
 class Analyzer(private val overlayView: SegmentationOverlayView, private val context: Context) :
     ImageAnalysis.Analyzer {
+
+        private val MODEL_PATH = "best_float32.tflite"
+
     private val interpreter: Interpreter by lazy {
         try {
-            val modelFile = context.assets.open("best_float32.tflite").use { input ->
-                val buffer = ByteBuffer.allocateDirect(input.available())
-                input.read(buffer.array())
-                buffer
-            }
+            val modelFile = loadLocalModelFile()
             Interpreter(modelFile, Interpreter.Options().apply {
                 addDelegate(GpuDelegate()) // Use GPU for faster inference
             })
@@ -31,6 +36,17 @@ class Analyzer(private val overlayView: SegmentationOverlayView, private val con
             Log.e("Analyzer", "Failed to load model", e)
             throw e
         }
+    }
+
+    @Throws(IOException::class)
+    private fun loadLocalModelFile(): MappedByteBuffer {
+        val fileDescriptor: AssetFileDescriptor = context.assets.openFd(MODEL_PATH)
+        val inputStream = FileInputStream(fileDescriptor.fileDescriptor)
+        val startOffset = fileDescriptor.startOffset
+        val declaredLength = fileDescriptor.declaredLength
+
+        val fileChannel = inputStream.channel
+        return fileChannel.map(FileChannel.MapMode.READ_ONLY, startOffset, declaredLength)
     }
 
     override fun analyze(image: ImageProxy) {

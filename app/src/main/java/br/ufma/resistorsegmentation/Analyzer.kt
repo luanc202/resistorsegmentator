@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.graphics.RectF
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
+import br.ufma.resistorsegmentation.types.SegmentationResult
 import org.tensorflow.lite.DataType
 import org.tensorflow.lite.Interpreter
 import org.tensorflow.lite.gpu.GpuDelegate

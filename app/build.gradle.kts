@@ -53,12 +53,13 @@ dependencies {
     implementation(libs.camera.camera2)
     implementation(libs.camera.lifecycle)
     implementation(libs.camera.view)
-    implementation(libs.tensorflow.lite)
-    implementation(libs.tensorflow.lite.gpu)
     implementation(libs.androidx.appcompat)
-    implementation(libs.tensorflow.lite)
-    implementation(libs.tensorflow.lite.gpu)
-    implementation(libs.tensorflow.lite.support)
+    // https://mvnrepository.com/artifact/com.google.ai.edge.litert/litert
+    implementation(libs.litert)
+    // https://mvnrepository.com/artifact/com.google.ai.edge.litert/litert-gpu
+    implementation(libs.litert.gpu)
+    // https://mvnrepository.com/artifact/com.google.ai.edge.litert/litert-support
+    implementation(libs.litert.support)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

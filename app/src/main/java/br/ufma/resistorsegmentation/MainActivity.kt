@@ -49,11 +49,21 @@ class MainActivity : ComponentActivity() {
                 .setTargetResolution(Size(640, 640)) // Match model input size
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build()
-                .also { it.setAnalyzer(ContextCompat.getMainExecutor(this), Analyzer(overlayView)) }
+                .also {
+                    it.setAnalyzer(
+                        ContextCompat.getMainExecutor(this),
+                        Analyzer(overlayView, this)
+                    )
+                }
 
             // Bind to lifecycle
             cameraProvider.unbindAll()
-            cameraProvider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageAnalysis)
+            cameraProvider.bindToLifecycle(
+                this,
+                CameraSelector.DEFAULT_BACK_CAMERA,
+                preview,
+                imageAnalysis
+            )
         }, ContextCompat.getMainExecutor(this))
     }
 }

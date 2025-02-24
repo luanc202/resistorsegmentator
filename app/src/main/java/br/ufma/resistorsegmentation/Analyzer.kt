@@ -11,11 +11,9 @@ import androidx.camera.core.ImageProxy
 import br.ufma.resistorsegmentation.types.SegmentationResult
 import org.tensorflow.lite.DataType
 import org.tensorflow.lite.Interpreter
-import org.tensorflow.lite.gpu.GpuDelegate
 import org.tensorflow.lite.support.tensorbuffer.TensorBuffer
 import java.io.FileInputStream
 import java.io.IOException
-import java.nio.ByteBuffer
 import java.nio.MappedByteBuffer
 import java.nio.channels.FileChannel
 import kotlin.math.exp
@@ -24,14 +22,13 @@ import kotlin.math.exp
 class Analyzer(private val overlayView: SegmentationOverlayView, private val context: Context) :
     ImageAnalysis.Analyzer {
 
-        private val MODEL_PATH = "best_float32.tflite"
+    private val MODEL_PATH = "weights/best_float32.tflite"
 
     private val interpreter: Interpreter by lazy {
         try {
             val modelFile = loadLocalModelFile()
-            Interpreter(modelFile, Interpreter.Options().apply {
-                addDelegate(GpuDelegate()) // Use GPU for faster inference
-            })
+
+            Interpreter(modelFile)
         } catch (e: Exception) {
             Log.e("Analyzer", "Failed to load model", e)
             throw e
@@ -41,12 +38,12 @@ class Analyzer(private val overlayView: SegmentationOverlayView, private val con
     @Throws(IOException::class)
     private fun loadLocalModelFile(): MappedByteBuffer {
         val fileDescriptor: AssetFileDescriptor = context.assets.openFd(MODEL_PATH)
-        val inputStream = FileInputStream(fileDescriptor.fileDescriptor)
-        val startOffset = fileDescriptor.startOffset
-        val declaredLength = fileDescriptor.declaredLength
-
-        val fileChannel = inputStream.channel
-        return fileChannel.map(FileChannel.MapMode.READ_ONLY, startOffset, declaredLength)
+        val inputStream = FileInputStream(fileDescriptor?.fileDescriptor)
+        return inputStream.channel.map(
+            FileChannel.MapMode.READ_ONLY,
+            fileDescriptor.startOffset ?: 0,
+            fileDescriptor.declaredLength ?: 0,
+        )
     }
 
     override fun analyze(image: ImageProxy) {
@@ -54,25 +51,31 @@ class Analyzer(private val overlayView: SegmentationOverlayView, private val con
             // Convert ImageProxy to Bitmap
             val bitmap = image.toBitmap()
             val inputTensor = preprocessImage(bitmap)
+            Log.i("Analyzer", "Input tensor set")
 
-            val detectionOutput = Array(1) { FloatArray(45 * 8400) }  // [1, 45, 8400] flattened
+            val detectionOutput = Array(1) { Array(45) { FloatArray(8400) } }  // [1, 45, 8400]
             val maskOutput = Array(1) { FloatArray(160 * 160 * 32) }  // [1, 160, 160, 32] flattened
             val outputs = mapOf(
                 0 to detectionOutput,  // Output 0: detections
                 1 to maskOutput        // Output 1: mask prototypes
             )
 
-            // Run inference
-            interpreter.runForMultipleInputsOutputs(arrayOf(inputTensor), outputs)
+            Log.i("Analyzer", "Running inference")
 
+            // Run inference
+            interpreter.runForMultipleInputsOutputs(arrayOf(inputTensor.buffer), outputs)
+
+            Log.i("Analyzer", "Postprocessing output")
             // Postprocess the outputs
             val segmentationResults = postprocessOutput(detectionOutput[0], maskOutput[0])
-
+            Log.i("Analyzer", "Postprocessing done")
             // Update overlay view on UI thread
             overlayView.post {
                 overlayView.setSegmentationResults(segmentationResults)
                 overlayView.invalidate()
             }
+
+            Log.i("Analyzer", "Overlay view updated")
         } catch (e: Exception) {
             Log.e("Analyzer", "Inference failed", e)
         } finally {
@@ -96,9 +99,10 @@ class Analyzer(private val overlayView: SegmentationOverlayView, private val con
     }
 
     private fun postprocessOutput(
-        detectionOutput: FloatArray,  // Shape [45, 8400]
-        maskOutput: FloatArray        // Shape [160, 160, 32]
+        detectionOutput: Array<FloatArray>,  // Shape [45, 8400]
+        maskOutput: FloatArray              // Shape [160, 160, 32]
     ): List<SegmentationResult> {
+        Log.i("Analyzer", "Detection output shape: [${detectionOutput.size}, ${detectionOutput[0].size}, ${detectionOutput[0][0]}]")
         // Constants (adjust based on your model)
         val numClasses = 80  // e.g., COCO dataset has 80 classes
         val numCoefficients = 32  // Number of mask coefficients per detection
@@ -111,12 +115,11 @@ class Analyzer(private val overlayView: SegmentationOverlayView, private val con
         val maskCoefficients = mutableListOf<FloatArray>()  // Coefficients for each detection
 
         for (i in 0 until 8400) {  // Iterate over 8400 grid points
-            val offset = i * 45
-            val xCenter = detectionOutput[offset + 0]
-            val yCenter = detectionOutput[offset + 1]
-            val width = detectionOutput[offset + 2]
-            val height = detectionOutput[offset + 3]
-            val objectness = detectionOutput[offset + 4]
+            val xCenter = detectionOutput[0][i]  // Row 0: x_center
+            val yCenter = detectionOutput[1][i]  // Row 1: y_center
+            val width = detectionOutput[2][i]    // Row 2: width
+            val height = detectionOutput[3][i]   // Row 3: height
+            val objectness = detectionOutput[4][i]  // Row 4: objectness score
 
             // Check confidence
             if (objectness < confidenceThreshold) continue
@@ -125,7 +128,7 @@ class Analyzer(private val overlayView: SegmentationOverlayView, private val con
             var maxScore = 0f
             var maxClass = -1
             for (c in 0 until numClasses) {
-                val score = detectionOutput[offset + 5 + c]
+                val score = detectionOutput[5 + c][i]  // Rows 5 to 84: class scores
                 if (score > maxScore) {
                     maxScore = score
                     maxClass = c
@@ -144,9 +147,9 @@ class Analyzer(private val overlayView: SegmentationOverlayView, private val con
             // Store detection
             detections.add(Triple(box, totalScore, maxClass))
 
-            // Extract mask coefficients (last 32 values)
+            // Extract mask coefficients (rows 85 to 116, assuming 80 classes + 5)
             val coefficients = FloatArray(numCoefficients) { j ->
-                detectionOutput[offset + 5 + numClasses + j]
+                detectionOutput[5 + numClasses + j][i]
             }
             maskCoefficients.add(coefficients)
         }

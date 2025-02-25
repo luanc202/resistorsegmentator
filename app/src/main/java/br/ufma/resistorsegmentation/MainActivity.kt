@@ -3,8 +3,13 @@ package br.ufma.resistorsegmentation
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
+import android.view.View
 import android.widget.Button
+import android.widget.ImageView
+import android.widget.ProgressBar
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
@@ -16,25 +21,32 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
+import br.ufma.resistorsegmentation.types.SegmentationResult
 import java.io.File
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
 class MainActivity : ComponentActivity() {
     private lateinit var previewView: PreviewView
+    private lateinit var resultImageView: ImageView
     private lateinit var overlayView: SegmentationOverlayView
     private lateinit var captureButton: Button
+    private lateinit var progressBar: ProgressBar
     private lateinit var imageCapture: ImageCapture
     private lateinit var cameraExecutor: ExecutorService
+    private lateinit var cameraProvider: ProcessCameraProvider
     private val analyzer by lazy { Analyzer(overlayView, this) }
+    private var isCameraActive = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
         previewView = findViewById(R.id.preview_view)
+        resultImageView = findViewById(R.id.result_image_view)
         overlayView = findViewById(R.id.overlay_view)
         captureButton = findViewById(R.id.capture_button)
+        progressBar = findViewById(R.id.progress_bar)
         cameraExecutor = Executors.newSingleThreadExecutor()
 
         // Request camera permission
@@ -46,7 +58,11 @@ class MainActivity : ComponentActivity() {
 
         // Set up capture button
         captureButton.setOnClickListener {
-            takePhoto()
+            if (isCameraActive) {
+                takePhoto()
+            } else {
+                resetToCamera()
+            }
         }
     }
 
@@ -63,7 +79,7 @@ class MainActivity : ComponentActivity() {
     private fun startCamera() {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
         cameraProviderFuture.addListener({
-            val cameraProvider = cameraProviderFuture.get()
+            cameraProvider = cameraProviderFuture.get()
 
             // Preview use case
             val preview = Preview.Builder()
@@ -85,6 +101,11 @@ class MainActivity : ComponentActivity() {
                 preview,
                 imageCapture
             )
+            isCameraActive = true
+            previewView.visibility = View.VISIBLE
+            resultImageView.visibility = View.GONE
+            overlayView.visibility = View.VISIBLE
+            captureButton.text = "Capture Photo"
         }, ContextCompat.getMainExecutor(this))
     }
 
@@ -98,6 +119,8 @@ class MainActivity : ComponentActivity() {
             object : ImageCapture.OnImageSavedCallback {
                 override fun onImageSaved(output: ImageCapture.OutputFileResults) {
                     val bitmap = android.graphics.BitmapFactory.decodeFile(outputFile.absolutePath)
+                    cameraProvider.unbindAll() // Close the camera
+                    isCameraActive = false
                     runInference(bitmap)
                     outputFile.delete() // Clean up temporary file
                 }
@@ -111,11 +134,48 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun runInference(bitmap: Bitmap) {
-        val results = analyzer.processImage(bitmap)
-        overlayView.post {
-            overlayView.setSegmentationResults(results)
-            overlayView.invalidate()
+        // Show spinner
+        progressBar.visibility = View.VISIBLE
+        previewView.visibility = View.GONE
+        resultImageView.visibility = View.GONE
+        overlayView.visibility = View.GONE
+
+        // Run inference on a background thread
+        cameraExecutor.execute {
+            try {
+                val results = analyzer.processImage(bitmap)
+                val annotatedBitmap = drawAnnotations(bitmap, results)
+
+                // Update UI on main thread
+                Handler(Looper.getMainLooper()).post {
+                    resultImageView.setImageBitmap(annotatedBitmap)
+                    resultImageView.visibility = View.VISIBLE
+                    overlayView.setSegmentationResults(results)
+                    overlayView.visibility = View.VISIBLE
+                    progressBar.visibility = View.GONE
+                    captureButton.text = "Take Another Photo"
+                }
+            } catch (e: Exception) {
+                Log.e("MainActivity", "Inference failed", e)
+                Handler(Looper.getMainLooper()).post {
+                    Toast.makeText(this, "Inference failed", Toast.LENGTH_SHORT).show()
+                    progressBar.visibility = View.GONE
+                    resetToCamera()
+                }
+            }
         }
+    }
+
+    private fun drawAnnotations(bitmap: Bitmap, results: List<SegmentationResult>): Bitmap {
+        val mutableBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+        val canvas = android.graphics.Canvas(mutableBitmap)
+        overlayView.draw(canvas) // Draw annotations onto the bitmap
+        return mutableBitmap
+    }
+
+    private fun resetToCamera() {
+        overlayView.setSegmentationResults(emptyList()) // Clear overlay
+        startCamera()
     }
 
     override fun onDestroy() {

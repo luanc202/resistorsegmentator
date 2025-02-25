@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">ResistorSegmentation</string>
+    <string name="capture_photo">Capture Photo</string>
+    <string name="picture">picture</string>
 </resources>

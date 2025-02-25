@@ -96,7 +96,8 @@ class Analyzer(private val overlayView: SegmentationOverlayView, private val con
         detectionOutput: Array<FloatArray>,  // Shape [300, 38]
         maskOutput: Array<Array<FloatArray>> // Shape [160, 160, 32]
     ): List<SegmentationResult> {
-        // Your existing postprocessOutput logic remains unchanged...
+        Log.i("Analyzer", "postprocessOutput started")
+
         val numClasses = 1
         val numCoefficients = 32
         val stride = 640 / 160
@@ -161,6 +162,8 @@ class Analyzer(private val overlayView: SegmentationOverlayView, private val con
             val label = "class_$classId"
             results.add(SegmentationResult(box, label, scaledMask))
         }
+
+        Log.i("Analyzer", "postprocessOutput done")
 
         return results
     }

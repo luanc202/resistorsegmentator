@@ -7,6 +7,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
 import android.util.AttributeSet
+import android.util.Log
 import android.view.View
 import br.ufma.resistorsegmentation.types.SegmentationResult
 
@@ -27,7 +28,10 @@ class SegmentationOverlayView(context: Context, attrs: AttributeSet?) : View(con
         val scaleX = width.toFloat() / 640 // Assuming analysis size is 640x640
         val scaleY = height.toFloat() / 640
 
+        Log.i("SegmentationOverlayView", "Initializing drawing of results")
+
         for (result in results) {
+
             // Scale mask to display size
             val scaledMask = Bitmap.createScaledBitmap(result.mask, width, height, true)
             paint.color = getColorForLabel(result.label) // Define color mapping
@@ -41,6 +45,7 @@ class SegmentationOverlayView(context: Context, attrs: AttributeSet?) : View(con
                 result.box.bottom * scaleY
             )
             canvas.drawText(result.label, scaledBox.left, scaledBox.top - 10, textPaint)
+            Log.i("SegmentationOverlayView", "Finished drawing of results")
         }
     }
 

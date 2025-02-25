@@ -11,6 +11,7 @@ import androidx.camera.core.ImageProxy
 import br.ufma.resistorsegmentation.types.SegmentationResult
 import org.tensorflow.lite.DataType
 import org.tensorflow.lite.Interpreter
+import org.tensorflow.lite.gpu.GpuDelegate
 import org.tensorflow.lite.support.tensorbuffer.TensorBuffer
 import java.io.FileInputStream
 import java.io.IOException
@@ -22,13 +23,18 @@ import kotlin.math.exp
 class Analyzer(private val overlayView: SegmentationOverlayView, private val context: Context) :
     ImageAnalysis.Analyzer {
 
-    private val MODEL_PATH = "weights/best_float32.tflite"
+    private val MODEL_PATH = "weights/onnx_export_best_float16.tflite"
 
     private val interpreter: Interpreter by lazy {
         try {
             val modelFile = loadLocalModelFile()
 
-            Interpreter(modelFile)
+            Interpreter(modelFile, Interpreter.Options().apply {
+                addDelegate(GpuDelegate()) // Use GPU for faster inference
+            })
+            interpreter.allocateTensors()  // Explicitly allocate tensors after initialization
+            Log.i("Analyzer", "Interpreter initialized and tensors allocated")
+            interpreter
         } catch (e: Exception) {
             Log.e("Analyzer", "Failed to load model", e)
             throw e
@@ -43,7 +49,7 @@ class Analyzer(private val overlayView: SegmentationOverlayView, private val con
             FileChannel.MapMode.READ_ONLY,
             fileDescriptor.startOffset ?: 0,
             fileDescriptor.declaredLength ?: 0,
-        )
+        ).also { fileDescriptor.close() }
     }
 
     override fun analyze(image: ImageProxy) {
@@ -53,21 +59,26 @@ class Analyzer(private val overlayView: SegmentationOverlayView, private val con
             val inputTensor = preprocessImage(bitmap)
             Log.i("Analyzer", "Input tensor set")
 
-            val detectionOutput = Array(1) { Array(45) { FloatArray(8400) } }  // [1, 45, 8400]
-            val maskOutput = Array(1) { FloatArray(160 * 160 * 32) }  // [1, 160, 160, 32] flattened
+            val detectionOutput =
+                TensorBuffer.createFixedSize(intArrayOf(1, 300, 38), DataType.FLOAT32)
+            val maskOutput =
+                TensorBuffer.createFixedSize(intArrayOf(1, 160, 160, 32), DataType.FLOAT32)
             val outputs = mapOf(
-                0 to detectionOutput,  // Output 0: detections
-                1 to maskOutput        // Output 1: mask prototypes
+                0 to detectionOutput.buffer,
+                1 to maskOutput.buffer
             )
 
             Log.i("Analyzer", "Running inference")
-
             // Run inference
             interpreter.runForMultipleInputsOutputs(arrayOf(inputTensor.buffer), outputs)
 
             Log.i("Analyzer", "Postprocessing output")
             // Postprocess the outputs
-            val segmentationResults = postprocessOutput(detectionOutput[0], maskOutput[0])
+            val detectionArray =
+                Array(300) { i -> FloatArray(38) { j -> detectionOutput.floatArray[i * 38 + j] } }
+            val maskArray =
+                Array(160) { i -> Array(160) { j -> FloatArray(32) { k -> maskOutput.floatArray[(i * 160 + j) * 32 + k] } } }
+            val segmentationResults = postprocessOutput(detectionArray, maskArray)
             Log.i("Analyzer", "Postprocessing done")
             // Update overlay view on UI thread
             overlayView.post {
@@ -99,14 +110,14 @@ class Analyzer(private val overlayView: SegmentationOverlayView, private val con
     }
 
     private fun postprocessOutput(
-        detectionOutput: Array<FloatArray>,  // Shape [45, 8400]
-        maskOutput: FloatArray              // Shape [160, 160, 32]
+        detectionOutput: Array<FloatArray>,  // Shape [300, 38]
+        maskOutput: Array<Array<FloatArray>> // Shape [32, 160, 160]
     ): List<SegmentationResult> {
-        Log.i("Analyzer", "Detection output shape: [${detectionOutput.size}, ${detectionOutput[0].size}, ${detectionOutput[0][0]}]")
         // Constants (adjust based on your model)
-        val numClasses = 80  // e.g., COCO dataset has 80 classes
-        val numCoefficients = 32  // Number of mask coefficients per detection
-        val stride = 640 / 160  // Downscale factor (4 for 640x640 input, 160x160 masks)
+        val numClasses = 1  // Adjust based on your dataset (e.g., 1 if 33rd value is a class score)
+        val numCoefficients =
+            32  // Assuming 32 mask coefficients (38 - 4 box - 1 objectness - 1 class = 32)
+        val stride = 640 / 160  // Downscale factor (4)
         val confidenceThreshold = 0.25f
         val nmsThreshold = 0.45f
 
@@ -114,27 +125,19 @@ class Analyzer(private val overlayView: SegmentationOverlayView, private val con
         val detections = mutableListOf<Triple<RectF, Float, Int>>()  // (box, score, class)
         val maskCoefficients = mutableListOf<FloatArray>()  // Coefficients for each detection
 
-        for (i in 0 until 8400) {  // Iterate over 8400 grid points
-            val xCenter = detectionOutput[0][i]  // Row 0: x_center
-            val yCenter = detectionOutput[1][i]  // Row 1: y_center
-            val width = detectionOutput[2][i]    // Row 2: width
-            val height = detectionOutput[3][i]   // Row 3: height
-            val objectness = detectionOutput[4][i]  // Row 4: objectness score
+        for (i in 0 until 300) {  // Iterate over 300 detections
+            val xCenter = detectionOutput[i][0]  // Column 0: x_center
+            val yCenter = detectionOutput[i][1]  // Column 1: y_center
+            val width = detectionOutput[i][2]    // Column 2: width
+            val height = detectionOutput[i][3]   // Column 3: height
+            val objectness = detectionOutput[i][4]  // Column 4: objectness score
 
             // Check confidence
             if (objectness < confidenceThreshold) continue
 
-            // Find max class score
-            var maxScore = 0f
-            var maxClass = -1
-            for (c in 0 until numClasses) {
-                val score = detectionOutput[5 + c][i]  // Rows 5 to 84: class scores
-                if (score > maxScore) {
-                    maxScore = score
-                    maxClass = c
-                }
-            }
-            val totalScore = objectness * maxScore
+            // Find max class score (assuming 1 class for simplicity, adjust as needed)
+            val classScore = detectionOutput[i][5]  // Column 5: class score (e.g., single class)
+            val totalScore = objectness * classScore
             if (totalScore < confidenceThreshold) continue
 
             // Calculate bounding box
@@ -145,11 +148,11 @@ class Analyzer(private val overlayView: SegmentationOverlayView, private val con
             val box = RectF(left, top, right, bottom)
 
             // Store detection
-            detections.add(Triple(box, totalScore, maxClass))
+            detections.add(Triple(box, totalScore, 0))  // Class ID 0 if single class
 
-            // Extract mask coefficients (rows 85 to 116, assuming 80 classes + 5)
+            // Extract mask coefficients (columns 6 to 37, assuming 32 coefficients)
             val coefficients = FloatArray(numCoefficients) { j ->
-                detectionOutput[5 + numClasses + j][i]
+                detectionOutput[i][6 + j]
             }
             maskCoefficients.add(coefficients)
         }
@@ -169,7 +172,7 @@ class Analyzer(private val overlayView: SegmentationOverlayView, private val con
                 for (x in 0 until 160) {
                     var sum = 0f
                     for (p in 0 until 32) {
-                        sum += coefficients[p] * maskOutput[(y * 160 + x) * 32 + p]
+                        sum += coefficients[p] * maskOutput[p][y][x]  // Channel-first indexing
                     }
                     mask[y * 160 + x] = sigmoid(sum)  // Apply sigmoid to get [0, 1]
                 }
@@ -187,7 +190,7 @@ class Analyzer(private val overlayView: SegmentationOverlayView, private val con
             // Scale mask to input size (640x640)
             val scaledMask = Bitmap.createScaledBitmap(maskBitmap, 640, 640, true)
 
-            // Map class ID to label (example mapping, adjust as needed)
+            // Map class ID to label (adjust as needed)
             val label = "class_$classId"  // Replace with actual class names
 
             results.add(SegmentationResult(box, label, scaledMask))

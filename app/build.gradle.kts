@@ -36,6 +36,7 @@ android {
     }
     buildFeatures {
         compose = true
+        mlModelBinding = true
     }
 }
 
@@ -54,12 +55,12 @@ dependencies {
     implementation(libs.camera.lifecycle)
     implementation(libs.camera.view)
     implementation(libs.androidx.appcompat)
-    // https://mvnrepository.com/artifact/com.google.ai.edge.litert/litert
-    implementation(libs.litert)
-    // https://mvnrepository.com/artifact/com.google.ai.edge.litert/litert-gpu
-    implementation(libs.litert.gpu)
-    // https://mvnrepository.com/artifact/com.google.ai.edge.litert/litert-support
-    implementation(libs.litert.support)
+    implementation(libs.androidx.constraintlayout)
+    implementation(libs.tensorflow.lite.support)
+    implementation(libs.tensorflow.lite.metadata)
+//    implementation(libs.tensorflow.lite.gpu)
+    implementation (libs.kotlinx.coroutines.core)
+    implementation (libs.kotlinx.coroutines.android)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

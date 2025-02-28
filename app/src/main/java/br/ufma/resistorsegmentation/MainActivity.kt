@@ -3,8 +3,6 @@ package br.ufma.resistorsegmentation
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.util.Log
 import android.view.View
 import android.widget.Button
@@ -22,6 +20,9 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import br.ufma.resistorsegmentation.types.SegmentationResult
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import java.io.File
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -37,6 +38,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var cameraProvider: ProcessCameraProvider
     private val analyzer by lazy { Analyzer(overlayView, this) }
     private var isCameraActive = false
+    private val scope = CoroutineScope(Dispatchers.Main)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -119,50 +121,45 @@ class MainActivity : ComponentActivity() {
             object : ImageCapture.OnImageSavedCallback {
                 override fun onImageSaved(output: ImageCapture.OutputFileResults) {
                     val bitmap = android.graphics.BitmapFactory.decodeFile(outputFile.absolutePath)
-                    cameraProvider.unbindAll() // Close the camera
-                    isCameraActive = false
-                    runInference(bitmap)
-                    outputFile.delete() // Clean up temporary file
+                    scope.launch {
+                        cameraProvider.unbindAll()
+                        isCameraActive = false
+                        runInference(bitmap)
+                    }
+                    outputFile.delete()
                 }
 
                 override fun onError(exception: ImageCaptureException) {
                     Log.e("MainActivity", "Photo capture failed: ${exception.message}", exception)
-                    Toast.makeText(this@MainActivity, "Capture failed", Toast.LENGTH_SHORT).show()
+                    scope.launch {
+                        Toast.makeText(this@MainActivity, "Capture failed", Toast.LENGTH_SHORT).show()
+                    }
                 }
             }
         )
     }
 
-    private fun runInference(bitmap: Bitmap) {
-        // Show spinner
+    private suspend fun runInference(bitmap: Bitmap) {
         progressBar.visibility = View.VISIBLE
         previewView.visibility = View.GONE
         resultImageView.visibility = View.GONE
         overlayView.visibility = View.GONE
 
-        // Run inference on a background thread
-        cameraExecutor.execute {
-            try {
-                val results = analyzer.processImage(bitmap)
-                val annotatedBitmap = drawAnnotations(bitmap, results)
+        try {
+            val results = analyzer.processImage(bitmap) // Suspend call
+            val annotatedBitmap = drawAnnotations(bitmap, results)
 
-                // Update UI on main thread
-                Handler(Looper.getMainLooper()).post {
-                    resultImageView.setImageBitmap(annotatedBitmap)
-                    resultImageView.visibility = View.VISIBLE
-                    overlayView.setSegmentationResults(results)
-                    overlayView.visibility = View.VISIBLE
-                    progressBar.visibility = View.GONE
-                    captureButton.text = "Take Another Photo"
-                }
-            } catch (e: Exception) {
-                Log.e("MainActivity", "Inference failed", e)
-                Handler(Looper.getMainLooper()).post {
-                    Toast.makeText(this, "Inference failed", Toast.LENGTH_SHORT).show()
-                    progressBar.visibility = View.GONE
-                    resetToCamera()
-                }
-            }
+            resultImageView.setImageBitmap(annotatedBitmap)
+            resultImageView.visibility = View.VISIBLE
+            overlayView.setSegmentationResults(results)
+            overlayView.visibility = View.VISIBLE
+            progressBar.visibility = View.GONE
+            captureButton.text = "Take Another Photo"
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Inference failed", e)
+            Toast.makeText(this, "Inference failed", Toast.LENGTH_SHORT).show()
+            progressBar.visibility = View.GONE
+            resetToCamera()
         }
     }
 

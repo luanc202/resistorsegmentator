@@ -36,7 +36,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var imageCapture: ImageCapture
     private lateinit var cameraExecutor: ExecutorService
     private lateinit var cameraProvider: ProcessCameraProvider
-    private val analyzer by lazy { Analyzer(overlayView, this) }
+    private val analyzer by lazy { Analyzer(this) }
     private var isCameraActive = false
     private val scope = CoroutineScope(Dispatchers.Main)
 

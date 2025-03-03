@@ -21,11 +21,10 @@ import kotlin.math.exp
 
 class Analyzer(private val context: Context) {
 
-    // Model file path
-    private val MODEL_PATH = "weights/best_float32.tflite"
-
     // Input shape constants [1, channels, height, width]
     private companion object {
+        const val MODEL_PATH = "weights/best_float32.tflite"
+
         const val INPUT_BATCH_SIZE = 1
         const val INPUT_CHANNELS = 3
         const val INPUT_HEIGHT = 640
@@ -33,8 +32,8 @@ class Analyzer(private val context: Context) {
 
         // Detection output shape constants [1, num_detections, detection_values]
         const val DETECTION_BATCH_SIZE = 1
-        const val NUM_DETECTIONS = 300
-        const val DETECTION_VALUES = 38
+        const val NUM_DETECTIONS = 45
+        const val DETECTION_VALUES = 8400
 
         // Mask output shape constants [1, mask_height, mask_width, num_coefficients]
         const val MASK_BATCH_SIZE = 1
@@ -150,7 +149,7 @@ class Analyzer(private val context: Context) {
             "black_belt", "blue_belt", "brown_belt", "gold_belt", "gray_belt",
             "orange_belt", "red_belt", "resistor", "yellow_belt"
         )
-        val numCoefficients = 24
+        val numCoefficients = 32
         val stride = 32
         val confidenceThreshold = 0.25f
         val nmsThreshold = 0.45f

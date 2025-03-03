@@ -2,11 +2,14 @@ package br.ufma.resistorsegmentation
 
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.RectF
 import android.os.Bundle
 import android.util.Log
 import android.view.View
 import android.widget.Button
-import android.widget.ImageView
 import android.widget.ProgressBar
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -20,16 +23,18 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import br.ufma.resistorsegmentation.types.SegmentationResult
+import com.davemorrissey.labs.subscaleview.ImageSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView
 
 class MainActivity : ComponentActivity() {
     private lateinit var previewView: PreviewView
-    private lateinit var resultImageView: ImageView
+    private lateinit var resultImageView: SubsamplingScaleImageView // Updated to SubsamplingScaleImageView
     private lateinit var overlayView: SegmentationOverlayView
     private lateinit var captureButton: Button
     private lateinit var progressBar: ProgressBar
@@ -39,6 +44,11 @@ class MainActivity : ComponentActivity() {
     private val analyzer by lazy { Analyzer(this) }
     private var isCameraActive = false
     private val scope = CoroutineScope(Dispatchers.Main)
+    private val textPaint = Paint().apply {
+        color = Color.WHITE
+        textSize = 40f
+        style = Paint.Style.FILL
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -51,14 +61,12 @@ class MainActivity : ComponentActivity() {
         progressBar = findViewById(R.id.progress_bar)
         cameraExecutor = Executors.newSingleThreadExecutor()
 
-        // Request camera permission
         if (checkSelfPermission(android.Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             requestCameraPermission()
         } else {
             startCamera()
         }
 
-        // Set up capture button
         captureButton.setOnClickListener {
             if (isCameraActive) {
                 takePhoto()
@@ -83,19 +91,16 @@ class MainActivity : ComponentActivity() {
         cameraProviderFuture.addListener({
             cameraProvider = cameraProviderFuture.get()
 
-            // Preview use case
             val preview = Preview.Builder()
                 .setTargetAspectRatio(AspectRatio.RATIO_4_3)
                 .build()
                 .also { it.setSurfaceProvider(previewView.surfaceProvider) }
 
-            // Image capture use case
             imageCapture = ImageCapture.Builder()
                 .setTargetAspectRatio(AspectRatio.RATIO_4_3)
                 .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
                 .build()
 
-            // Bind to lifecycle
             cameraProvider.unbindAll()
             cameraProvider.bindToLifecycle(
                 this,
@@ -146,13 +151,13 @@ class MainActivity : ComponentActivity() {
         overlayView.visibility = View.GONE
 
         try {
-            val results = analyzer.processImage(bitmap) // Suspend call
+            val results = analyzer.processImage(bitmap)
+            overlayView.setSegmentationResults(results)
             val annotatedBitmap = drawAnnotations(bitmap, results)
 
-            resultImageView.setImageBitmap(annotatedBitmap)
+            resultImageView.setImage(ImageSource.bitmap(bitmap)) // Use setImage for SubsamplingScaleImageView
             resultImageView.visibility = View.VISIBLE
-            overlayView.setSegmentationResults(results)
-            overlayView.visibility = View.VISIBLE
+            overlayView.visibility = View.GONE
             progressBar.visibility = View.GONE
             captureButton.text = "Take Another Photo"
         } catch (e: Exception) {
@@ -165,13 +170,62 @@ class MainActivity : ComponentActivity() {
 
     private fun drawAnnotations(bitmap: Bitmap, results: List<SegmentationResult>): Bitmap {
         val mutableBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, true)
-        val canvas = android.graphics.Canvas(mutableBitmap)
-        overlayView.draw(canvas) // Draw annotations onto the bitmap
+        val canvas = Canvas(mutableBitmap)
+        val width = mutableBitmap.width
+        val height = mutableBitmap.height
+
+        for (result in results) {
+            Log.i("MainActivity", "Drawing mask for label: ${result.label}, box: ${result.box}")
+            // Draw mask with lower threshold for visibility
+            val scaledMask = Bitmap.createScaledBitmap(result.mask, width, height, true)
+            val maskPaint = Paint().apply {
+                alpha = 128
+                color = getColorForLabel(result.label)
+            }
+            canvas.drawBitmap(scaledMask, 0f, 0f, maskPaint)
+
+            // Scale box coordinates (assuming normalized)
+            val scaledBox = RectF(
+                result.box.left * width,
+                result.box.top * height,
+                result.box.right * width,
+                result.box.bottom * height
+            )
+            // Clip box to image boundaries
+            scaledBox.left = scaledBox.left.coerceIn(0f, width.toFloat())
+            scaledBox.top = scaledBox.top.coerceIn(0f, height.toFloat())
+            scaledBox.right = scaledBox.right.coerceIn(0f, width.toFloat())
+            scaledBox.bottom = scaledBox.bottom.coerceIn(0f, height.toFloat())
+
+            // Draw box and label
+            val boxPaint = Paint().apply {
+                color = getColorForLabel(result.label)
+                style = Paint.Style.STROKE
+                strokeWidth = 5f
+            }
+            canvas.drawRect(scaledBox, boxPaint)
+            canvas.drawText(result.label, scaledBox.left, scaledBox.top - 10, textPaint)
+        }
         return mutableBitmap
     }
 
+    private fun getColorForLabel(label: String): Int {
+        return when (label) {
+            "black_belt" -> Color.BLACK
+            "blue_belt" -> Color.BLUE
+            "brown_belt" -> Color.parseColor("#8B4513")
+            "gold_belt" -> Color.YELLOW
+            "gray_belt" -> Color.GRAY
+            "orange_belt" -> Color.parseColor("#FFA500")
+            "red_belt" -> Color.RED
+            "resistor" -> Color.GREEN
+            "yellow_belt" -> Color.YELLOW
+            else -> Color.RED
+        }
+    }
+
     private fun resetToCamera() {
-        overlayView.setSegmentationResults(emptyList()) // Clear overlay
+        overlayView.setSegmentationResults(emptyList())
         startCamera()
     }
 

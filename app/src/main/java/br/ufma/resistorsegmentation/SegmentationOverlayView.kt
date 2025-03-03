@@ -13,7 +13,7 @@ import br.ufma.resistorsegmentation.types.SegmentationResult
 
 class SegmentationOverlayView(context: Context, attrs: AttributeSet?) : View(context, attrs) {
     private var results: List<SegmentationResult> = emptyList()
-    private val paint = Paint().apply { alpha = 128 } // Semi-transparent masks
+    private val paint = Paint().apply { alpha = 128 }
     private val textPaint = Paint().apply {
         color = Color.WHITE
         textSize = 40f
@@ -21,23 +21,26 @@ class SegmentationOverlayView(context: Context, attrs: AttributeSet?) : View(con
 
     fun setSegmentationResults(results: List<SegmentationResult>) {
         this.results = results
+        invalidate() // Trigger redraw
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        val scaleX = width.toFloat() / 640 // Assuming analysis size is 640x640
-        val scaleY = height.toFloat() / 640
+        val scaleX = width.toFloat() / 640f
+        val scaleY = height.toFloat() / 640f
 
-        Log.i("SegmentationOverlayView", "Initializing drawing of results")
+        Log.i("SegmentationOverlayView", "Drawing ${results.size} results")
 
         for (result in results) {
+            // Log mask sample to debug
+            val maskPixels = IntArray(10 * 10)
+            result.mask.getPixels(maskPixels, 0, 10, 0, 0, 10, 10)
+            Log.i("SegmentationOverlayView", "Mask sample (top-left 10x10): ${maskPixels.take(10).joinToString()}")
 
-            // Scale mask to display size
             val scaledMask = Bitmap.createScaledBitmap(result.mask, width, height, true)
-            paint.color = getColorForLabel(result.label) // Define color mapping
+            paint.color = getColorForLabel(result.label)
             canvas.drawBitmap(scaledMask, 0f, 0f, paint)
 
-            // Scale bounding box
             val scaledBox = RectF(
                 result.box.left * scaleX,
                 result.box.top * scaleY,
@@ -45,12 +48,21 @@ class SegmentationOverlayView(context: Context, attrs: AttributeSet?) : View(con
                 result.box.bottom * scaleY
             )
             canvas.drawText(result.label, scaledBox.left, scaledBox.top - 10, textPaint)
-            Log.i("SegmentationOverlayView", "Finished drawing of results")
         }
     }
 
     private fun getColorForLabel(label: String): Int {
-        // Map labels to colors, e.g., "person" -> Color.RED, "car" -> Color.BLUE
-        return Color.RED // Placeholder
+        return when (label) {
+            "black_belt" -> Color.BLACK
+            "blue_belt" -> Color.BLUE
+            "brown_belt" -> Color.parseColor("#8B4513")
+            "gold_belt" -> Color.YELLOW
+            "gray_belt" -> Color.GRAY
+            "orange_belt" -> Color.parseColor("#FFA500")
+            "red_belt" -> Color.RED
+            "resistor" -> Color.GREEN
+            "yellow_belt" -> Color.YELLOW
+            else -> Color.RED
+        }
     }
 }

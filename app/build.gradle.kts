@@ -59,6 +59,7 @@ dependencies {
     implementation(libs.tensorflow.lite.support)
     implementation(libs.tensorflow.lite.metadata)
 //    implementation(libs.tensorflow.lite.gpu)
+    implementation (libs.subsampling.scale.image.view)
     implementation (libs.kotlinx.coroutines.core)
     implementation (libs.kotlinx.coroutines.android)
     testImplementation(libs.junit)

@@ -17,6 +17,8 @@ composeBom = "2025.02.00"
 litert = "1.1.2"
 litertGpu = "1.1.2"
 litertSupport = "1.1.2"
+photoview = "2.3.0"
+subsamplingScaleImageView = "3.10.0"
 tensorflowLite = "2.14.0"
 tensorflowLiteGpu = "2.14.0"
 appcompat = "1.7.0"
@@ -46,6 +48,8 @@ androidx-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit
 androidx-material3 = { group = "androidx.compose.material3", name = "material3" }
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "kotlinxCoroutinesAndroid" }
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinxCoroutinesCore" }
+photoview = { module = "com.github.chrisbanes:PhotoView", version.ref = "photoview" }
+subsampling-scale-image-view = { module = "com.davemorrissey.labs:subsampling-scale-image-view", version.ref = "subsamplingScaleImageView" }
 tensorflow-lite = { module = "org.tensorflow:tensorflow-lite", version.ref = "tensorflowLite" }
 tensorflow-lite-gpu = { module = "org.tensorflow:tensorflow-lite-gpu", version.ref = "tensorflowLiteGpu" }
 androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }

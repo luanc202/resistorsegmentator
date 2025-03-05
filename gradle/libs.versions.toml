@@ -26,6 +26,7 @@ tensorflowLiteSupport = "0.5.0"
 firebaseFirestoreKtx = "25.1.2"
 constraintlayout = "2.2.0"
 tensorflowLiteMetadata = "0.1.0"
+tensorflowLiteTaskVision = "0.4.4"
 
 [libraries]
 androidx-camera-core = { module = "androidx.camera:camera-core", version.ref = "cameraCore" }
@@ -57,6 +58,7 @@ tensorflow-lite-support = { module = "org.tensorflow:tensorflow-lite-support", v
 firebase-firestore-ktx = { group = "com.google.firebase", name = "firebase-firestore-ktx", version.ref = "firebaseFirestoreKtx" }
 androidx-constraintlayout = { group = "androidx.constraintlayout", name = "constraintlayout", version.ref = "constraintlayout" }
 tensorflow-lite-metadata = { group = "org.tensorflow", name = "tensorflow-lite-metadata", version.ref = "tensorflowLiteMetadata" }
+tensorflow-lite-task-vision = { module = "org.tensorflow:tensorflow-lite-task-vision", version.ref = "tensorflowLiteTaskVision" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

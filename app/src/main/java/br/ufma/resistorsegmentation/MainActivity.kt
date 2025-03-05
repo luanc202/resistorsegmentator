@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Rect
 import android.graphics.RectF
 import android.os.Bundle
 import android.util.Log
@@ -34,7 +35,7 @@ import com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView
 
 class MainActivity : ComponentActivity() {
     private lateinit var previewView: PreviewView
-    private lateinit var resultImageView: SubsamplingScaleImageView // Updated to SubsamplingScaleImageView
+    private lateinit var resultImageView: SubsamplingScaleImageView
     private lateinit var overlayView: SegmentationOverlayView
     private lateinit var captureButton: Button
     private lateinit var progressBar: ProgressBar
@@ -48,6 +49,7 @@ class MainActivity : ComponentActivity() {
         color = Color.WHITE
         textSize = 40f
         style = Paint.Style.FILL
+        setShadowLayer(2f, 2f, 2f, Color.BLACK) // Add shadow for readability
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -155,7 +157,7 @@ class MainActivity : ComponentActivity() {
             overlayView.setSegmentationResults(results)
             val annotatedBitmap = drawAnnotations(bitmap, results)
 
-            resultImageView.setImage(ImageSource.bitmap(bitmap)) // Use setImage for SubsamplingScaleImageView
+            resultImageView.setImage(ImageSource.bitmap(annotatedBitmap))
             resultImageView.visibility = View.VISIBLE
             overlayView.visibility = View.GONE
             progressBar.visibility = View.GONE
@@ -171,40 +173,56 @@ class MainActivity : ComponentActivity() {
     private fun drawAnnotations(bitmap: Bitmap, results: List<SegmentationResult>): Bitmap {
         val mutableBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, true)
         val canvas = Canvas(mutableBitmap)
-        val width = mutableBitmap.width
-        val height = mutableBitmap.height
+        val width = mutableBitmap.width.toFloat()
+        val height = mutableBitmap.height.toFloat()
 
         for (result in results) {
-            Log.i("MainActivity", "Drawing mask for label: ${result.label}, box: ${result.box}")
-            // Draw mask with lower threshold for visibility
-            val scaledMask = Bitmap.createScaledBitmap(result.mask, width, height, true)
+            Log.i("MainActivity", "Drawing annotation for label: ${result.label}, box: ${result.box}")
+
+            // Draw mask with transparency
+            val scaledMask = Bitmap.createScaledBitmap(result.mask, width.toInt(), height.toInt(), true)
             val maskPaint = Paint().apply {
-                alpha = 128
+                alpha = 80 // Lower alpha for more transparency
                 color = getColorForLabel(result.label)
             }
             canvas.drawBitmap(scaledMask, 0f, 0f, maskPaint)
 
-            // Scale box coordinates (assuming normalized)
+            // Scale and clip bounding box coordinates
             val scaledBox = RectF(
                 result.box.left * width,
                 result.box.top * height,
                 result.box.right * width,
                 result.box.bottom * height
             )
-            // Clip box to image boundaries
-            scaledBox.left = scaledBox.left.coerceIn(0f, width.toFloat())
-            scaledBox.top = scaledBox.top.coerceIn(0f, height.toFloat())
-            scaledBox.right = scaledBox.right.coerceIn(0f, width.toFloat())
-            scaledBox.bottom = scaledBox.bottom.coerceIn(0f, height.toFloat())
+            scaledBox.left = scaledBox.left.coerceIn(0f, width)
+            scaledBox.top = scaledBox.top.coerceIn(0f, height)
+            scaledBox.right = scaledBox.right.coerceIn(0f, width)
+            scaledBox.bottom = scaledBox.bottom.coerceIn(0f, height)
 
-            // Draw box and label
+            // Draw bounding box
             val boxPaint = Paint().apply {
                 color = getColorForLabel(result.label)
                 style = Paint.Style.STROKE
                 strokeWidth = 5f
             }
             canvas.drawRect(scaledBox, boxPaint)
-            canvas.drawText(result.label, scaledBox.left, scaledBox.top - 10, textPaint)
+
+            // Draw label with background for readability
+            val label = result.label
+            val textWidth = textPaint.measureText(label)
+            val textHeight = textPaint.descent() - textPaint.ascent()
+            val textBackgroundPaint = Paint().apply {
+                color = Color.BLACK
+                style = Paint.Style.FILL
+            }
+            canvas.drawRect(
+                scaledBox.left,
+                scaledBox.top - textHeight - 10,
+                scaledBox.left + textWidth,
+                scaledBox.top - 10,
+                textBackgroundPaint
+            )
+            canvas.drawText(label, scaledBox.left, scaledBox.top - 10, textPaint)
         }
         return mutableBitmap
     }
@@ -216,10 +234,13 @@ class MainActivity : ComponentActivity() {
             "brown_belt" -> Color.parseColor("#8B4513")
             "gold_belt" -> Color.YELLOW
             "gray_belt" -> Color.GRAY
+            "green_belt" -> Color.GREEN
             "orange_belt" -> Color.parseColor("#FFA500")
+            "purple_belt" -> Color.parseColor("#800080")
             "red_belt" -> Color.RED
-            "resistor" -> Color.GREEN
-            "yellow_belt" -> Color.YELLOW
+            "resistor" -> Color.parseColor("#00CED1") // Turquoise
+            "white_belt" -> Color.WHITE
+            "yellow_belt" -> Color.parseColor("#FFFF00")
             else -> Color.RED
         }
     }

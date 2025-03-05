@@ -21,21 +21,21 @@ import kotlin.math.exp
 
 class Analyzer(private val context: Context) {
 
-    // Input shape constants [1, channels, height, width]
     private companion object {
         const val MODEL_PATH = "weights/best_float32.tflite"
 
+        // Input shape [1, channels, height, width]
         const val INPUT_BATCH_SIZE = 1
         const val INPUT_CHANNELS = 3
         const val INPUT_HEIGHT = 640
         const val INPUT_WIDTH = 640
 
-        // Detection output shape constants [1, num_detections, detection_values]
+        // Detection output shape [1, num_detections, detection_values]
         const val DETECTION_BATCH_SIZE = 1
-        const val NUM_DETECTIONS = 45
-        const val DETECTION_VALUES = 8400
+        const val NUM_DETECTIONS = 300  // Updated from 38
+        const val DETECTION_VALUES = 38  // Updated from 300
 
-        // Mask output shape constants [1, mask_height, mask_width, num_coefficients]
+        // Mask output shape [1, mask_height, mask_width, num_coefficients]
         const val MASK_BATCH_SIZE = 1
         const val MASK_HEIGHT = 160
         const val MASK_WIDTH = 160
@@ -62,11 +62,8 @@ class Analyzer(private val context: Context) {
         val fileDescriptor = context.assets.openFd(MODEL_PATH)
         return FileInputStream(fileDescriptor.fileDescriptor).use { inputStream ->
             inputStream.channel.use { channel ->
-                channel.map(
-                    FileChannel.MapMode.READ_ONLY,
-                    fileDescriptor.startOffset,
-                    fileDescriptor.declaredLength
-                ).also { fileDescriptor.close() }
+                channel.map(FileChannel.MapMode.READ_ONLY, fileDescriptor.startOffset, fileDescriptor.declaredLength)
+                    .also { fileDescriptor.close() }
             }
         }
     }
@@ -120,6 +117,7 @@ class Analyzer(private val context: Context) {
                     FloatArray(DETECTION_VALUES) { j -> detectionOutput.floatArray[i * DETECTION_VALUES + j] }
                 }
                 Log.i("Analyzer", "detectionArray set in ${System.currentTimeMillis() - detectionStart}ms")
+                Log.i("Analyzer", "detectionArray sample: ${detectionArray[0].joinToString()}")
 
                 val maskStart = System.currentTimeMillis()
                 val maskFlatArray = withContext(Dispatchers.Default) {
@@ -128,6 +126,7 @@ class Analyzer(private val context: Context) {
                     }
                 }
                 Log.i("Analyzer", "maskArray set in ${System.currentTimeMillis() - maskStart}ms")
+                Log.i("Analyzer", "maskFlatArray sample: ${maskFlatArray.take(10).joinToString()}")
 
                 val postStart = System.currentTimeMillis()
                 val results = postprocessOutput(detectionArray, maskFlatArray)
@@ -144,12 +143,13 @@ class Analyzer(private val context: Context) {
         detectionOutput: Array<FloatArray>,
         maskFlatArray: FloatArray
     ): List<SegmentationResult> {
-        val numClasses = 9
+        val numClasses = 12  // Updated to 12 from metadata
         val classNames = listOf(
             "black_belt", "blue_belt", "brown_belt", "gold_belt", "gray_belt",
-            "orange_belt", "red_belt", "resistor", "yellow_belt"
+            "green_belt", "orange_belt", "purple_belt", "red_belt", "resistor",
+            "white_belt", "yellow_belt"
         )
-        val numCoefficients = 32
+        val numCoefficients = 21  // 38 - 4 (box) - 1 (objectness) - 12 (classes) = 21
         val stride = 32
         val confidenceThreshold = 0.25f
         val nmsThreshold = 0.45f
@@ -188,7 +188,7 @@ class Analyzer(private val context: Context) {
 
             detections.add(Triple(box, totalScore, maxClass))
 
-            val coefficients = FloatArray(numCoefficients) { j -> detectionOutput[i][14 + j] }
+            val coefficients = FloatArray(numCoefficients) { j -> detectionOutput[i][5 + numClasses + j] }
             maskCoefficients.add(coefficients)
         }
 
@@ -212,12 +212,13 @@ class Analyzer(private val context: Context) {
                     mask[y * MASK_WIDTH + x] = sigmoid(sum)
                 }
             }
+            Log.i("Analyzer", "Mask sample for ${classNames[classId]}: ${mask.take(10).joinToString()}")
 
             val maskBitmap = Bitmap.createBitmap(MASK_WIDTH, MASK_HEIGHT, Bitmap.Config.ARGB_8888)
             for (y in 0 until MASK_HEIGHT) {
                 for (x in 0 until MASK_WIDTH) {
-                    val value = if (mask[y * MASK_WIDTH + x] > 0.5f) 255 else 0
-                    maskBitmap.setPixel(x, y, Color.argb(value, 255, 255, 255))
+                    val value = if (mask[y * MASK_WIDTH + x] > 0.1f) 255 else 0 // Lowered threshold
+                    maskBitmap.setPixel(x, y, Color.argb(255, value, value, value))
                 }
             }
 
@@ -232,7 +233,6 @@ class Analyzer(private val context: Context) {
         return results
     }
 
-    // Helper: Apply Non-Maximum Suppression
     private fun applyNMS(detections: List<Triple<RectF, Float, Int>>, threshold: Float): List<Int> {
         val sorted = detections.mapIndexed { index, triple -> index to triple.second }
             .sortedByDescending { it.second }
@@ -257,7 +257,6 @@ class Analyzer(private val context: Context) {
         return selected
     }
 
-    // Helper: Compute Intersection over Union (IoU)
     private fun computeIoU(box1: RectF, box2: RectF): Float {
         val x1 = maxOf(box1.left, box2.left)
         val y1 = maxOf(box1.top, box2.top)
@@ -266,9 +265,8 @@ class Analyzer(private val context: Context) {
         val intersection = maxOf(0f, x2 - x1) * maxOf(0f, y2 - y1)
         val area1 = (box1.right - box1.left) * (box1.bottom - box1.top)
         val area2 = (box2.right - box2.left) * (box2.bottom - box2.top)
-        return intersection / (area1 + area2 - intersection)
+        return if (area1 + area2 - intersection == 0f) 0f else intersection / (area1 + area2 - intersection)
     }
 
-    // Helper: Sigmoid function
     private fun sigmoid(x: Float): Float = 1f / (1f + exp(-x))
 }
